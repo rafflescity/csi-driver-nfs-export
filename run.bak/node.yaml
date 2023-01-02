@@ -62,8 +62,8 @@ spec:
               mountPath: /csi
             - name: registration-dir
               mountPath: /registration
-            - mountPath: /var/snap/microk8s/common/var/lib/kubelet/pods
-              name: pods-mount-dir
+            - mountPath: /csi-data-dir
+              name: csi-data-dir
           resources: {}
         - name: nfs-export
           securityContext:
@@ -107,6 +107,8 @@ spec:
               mountPropagation: "Bidirectional"
             - name: github
               mountPath: /go/cne
+            - mountPath: /csi-data-dir
+              name: csi-data-dir
           resources: {}
       volumes:
         - name: socket-dir
@@ -125,9 +127,9 @@ spec:
           hostPath:
             path: /media/psf/Github/rafflescity/csi-driver-nfs-export/
             type: Directory
-        # - hostPath:
-        #     # 'path' is where PV data is persisted on host.
-        #     # using /tmp is also possible while the PVs will not available after plugin container recreation or host reboot
-        #     path: /var/lib/csi-hostpath-data/
-        #     type: DirectoryOrCreate
-        #   name: csi-data-dir
+        - hostPath:
+            # 'path' is where PV data is persisted on host.
+            # using /tmp is also possible while the PVs will not available after plugin container recreation or host reboot
+            path: /var/lib/csi-hostpath-data/
+            type: DirectoryOrCreate
+          name: csi-data-dir

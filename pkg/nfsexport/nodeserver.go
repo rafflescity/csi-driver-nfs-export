@@ -35,7 +35,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"github.com/hexops/valast"
+	// "github.com/hexops/valast"
 )
 
 // NodeServer driver
@@ -205,21 +205,21 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 					Name:  "export",
 					Image: backendImg,
 					ImagePullPolicy: corev1.PullAlways,
-					SecurityContext: &corev1.SecurityContext{
-						Privileged: valast.Addr(true).(*bool),
-					},
 					// SecurityContext: &corev1.SecurityContext{
-					// 	Capabilities: &corev1.Capabilities{
-					// 		Add: []corev1.Capability{
-					// 			"SYS_ADMIN",
-					// 			"SETPCAP",
-					// 			"DAC_READ_SEARCH",
-					// 		},
-					// 	},
+					// 	Privileged: valast.Addr(true).(*bool),
 					// },
-					Args: []string{
-						"/export",
+					SecurityContext: &corev1.SecurityContext{
+						Capabilities: &corev1.Capabilities{
+							Add: []corev1.Capability{
+								"SYS_ADMIN",
+								"SETPCAP",
+								"DAC_READ_SEARCH",
+							},
+						},
 					},
+					// Args: []string{
+					// 	"/export",
+					// },
 					Ports: []corev1.ContainerPort{
 						{
 							Name:          "nfs",
@@ -248,11 +248,11 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 						SuccessThreshold: 3,
 					},
 					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:			  "share",
-							MountPath:		  "/share",
-							MountPropagation: valast.Addr(corev1.MountPropagationMode("Bidirectional")).(*corev1.MountPropagationMode),
-						},
+						// {
+						// 	Name:			  "share",
+						// 	MountPath:		  "/share",
+						// 	MountPropagation: valast.Addr(corev1.MountPropagationMode("Bidirectional")).(*corev1.MountPropagationMode),
+						// },
 						{
 							Name:	   "export",
 							MountPath: "/export",
@@ -261,12 +261,12 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 				},
 			},
 			Volumes: []corev1.Volume{
-				{
-					Name: "share", 
-					VolumeSource: corev1.VolumeSource{
-						EmptyDir: &corev1.EmptyDirVolumeSource{},
-					},
-				},
+				// {
+				// 	Name: "share", 
+				// 	VolumeSource: corev1.VolumeSource{
+				// 		EmptyDir: &corev1.EmptyDirVolumeSource{},
+				// 	},
+				// },
 				{
 					Name: "export",
 					VolumeSource: corev1.VolumeSource{
@@ -279,13 +279,14 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		},
 	}
 
-	_, err = ns.Driver.clientSet.CoreV1().Pods(backendNs).Get(context.TODO(), backendPodName, metav1.GetOptions{})
+	backendPod, err := ns.Driver.clientSet.CoreV1().Pods(backendNs).Get(context.TODO(), backendPodName, metav1.GetOptions{})
 	if err != nil {
-		_, err = ns.Driver.clientSet.CoreV1().Pods(backendNs).Create(context.TODO(), backendPodDef, metav1.CreateOptions{})
+		backendPod, err = ns.Driver.clientSet.CoreV1().Pods(backendNs).Create(context.TODO(), backendPodDef, metav1.CreateOptions{})
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 	}
+	backendPodUid:= backendPod.ObjectMeta.UID
 
 	// Wait for Pod to be ready
 	for {
@@ -321,9 +322,12 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 
 	klog.V(2).Infof("NodePublishVolume: volumeID(%v) source(%s) targetPath(%s) mountflags(%v)", volumeID, source, targetPath, mountOptions)
 
-	localSource := "/var/snap/microk8s/common/default-storage/local" // experimental
-	if localSource != "" {
-		err = ns.mounter.Mount(localSource, targetPath, "", []string{"bind"})
+	localSource := fmt.Sprintf("/var/snap/microk8s/common/var/lib/kubelet/pods/%s/volumes/kubernetes.io~csi/pvc-%s/mount", backendPodUid, backendPvcUid ) // exprimental
+
+	// Mount local first, if fails, then mount remote
+	err = ns.mounter.Mount(localSource, targetPath, "", []string{"bind"})
+	if err == nil {
+		source = localSource
 	} else {
 		err = ns.mounter.Mount(source, targetPath, "nfs", mountOptions)
 	}
@@ -345,6 +349,7 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	} else {
 		klog.V(2).Infof("skip chmod on targetPath(%s) since mountPermissions is set as 0", targetPath)
 	}
+	
 	klog.V(2).Infof("volume(%s) mount %s on %s succeeded", volumeID, source, targetPath)
 	
 	return &csi.NodePublishVolumeResponse{}, nil

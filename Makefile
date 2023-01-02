@@ -53,6 +53,8 @@ re: cleanup clean build
 
 test:
 	kubectl apply -f example/pvc-dynamic.yaml
+	kubectl apply -f example/deployment-dynamic.yaml
+	watch kubectl get pod -o wide -n csi-nfs-export
 
 untest:
-	kubectl delete -f example/pvc-dynamic.yaml
+	kubectl delete -f example/deployment-dynamic.yaml

@@ -60,6 +60,23 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
+	// Find Namespace
+	frontendPvcUID := strings.Replace(frontendPvName, "pvc-", "", 1)
+	klog.V(2).Infof("Frontend PVC UID is: %s", frontendPvcUID)
+
+	pvcList, err := cs.Driver.clientSet.CoreV1().PersistentVolumeClaims("").List(context.TODO(), metav1.ListOptions{})
+
+	var frontendPvcName, frontendPvcNs string
+	for _, pvc := range pvcList.Items {
+		if string(pvc.ObjectMeta.UID) == frontendPvcUID {
+			frontendPvcName = pvc.ObjectMeta.Name
+			frontendPvcNs = pvc.ObjectMeta.Namespace
+			klog.V(2).Infof("Frontend PVC Name is: %s", frontendPvcName)
+			klog.V(2).Infof("Frontend PVC Namespace is: %s", frontendPvcNs)
+			break
+		}
+	}
+
 	// mountPermissions := cs.Driver.mountPermissions
 	size := req.GetCapacityRange().GetRequiredBytes()
 	
@@ -68,7 +85,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		parameters = make(map[string]string)
 	}
 
-    var backendSc, backendImg, backendNs string
+    var backendSc, backendImg string
 
 	// validate parameters (case-insensitive)
 	for k, v := range parameters {
@@ -77,8 +94,6 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 			backendSc = v
 		case paramBackendPodImage:
 			backendImg = v
-		case paramBackendNamespace:
-			backendNs = v
 		case pvcNamespaceKey:
 		case pvcNameKey:
 		case pvNameKey:
@@ -97,6 +112,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 
 	// Create BackendPvc
 	backendPvcName := "backend-" + frontendPvName
+	backendNs := frontendPvcNs
 
 	klog.V(2).Infof("Backend StorageClass is: %s", backendSc)
 	klog.V(2).Infof("Backend Pod Image is: %s", backendImg)

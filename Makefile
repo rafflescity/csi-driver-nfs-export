@@ -15,9 +15,6 @@
 build:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -x -ldflags="-extldflags=-static" -o ./bin/ ./cmd/nfsexportplugin
 
-cleanup:
-	kubectl -n csi-nfs-export delete pvc,pod,svc --all --wait=false
-
 clean:
 	rm -vfr ./bin/nfsexportplugin
 
@@ -36,9 +33,7 @@ run-local-nfs-server:
 		daocloud.io/piraeus/volume-nfs-exporter:ganesha
 	docker ps | grep nfs-ganesha
 
-
-
-re: cleanup clean build
+re: clean build
 	kubectl delete -f run/controller.yaml || true
 	kubectl -n csi-nfs-export wait deployment csi-nfs-export-controller --for=delete --timeout=90s
 	kubectl apply -f run/controller.yaml
@@ -58,3 +53,15 @@ test:
 
 untest:
 	kubectl delete -f example/deployment-dynamic.yaml
+	kubectl delete pod -l nfs-export.csi.k8s.io/backend-pvc
+	kubectl delete pvc -l nfs-export.csi.k8s.io/backend-pvc
+	kubectl delete svc -l nfs-export.csi.k8s.io/backend-pvc
+
+logj:
+	kubectl -n csi-nfs-export get po -l app=csi-nfs-export-node --field-selector spec.nodeName=jammy -o name \
+	| xargs -tI % kubectl -n csi-nfs-export logs -f % nfs-export
+
+logf:
+	kubectl -n csi-nfs-export get po -l app=csi-nfs-export-node --field-selector spec.nodeName=focal -o name \
+	| xargs -tI % kubectl logs -n csi-nfs-export -f % nfs-export
+

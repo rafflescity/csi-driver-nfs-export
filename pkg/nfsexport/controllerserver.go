@@ -237,10 +237,5 @@ func isValidVolumeCapabilities(volCaps []*csi.VolumeCapability) error {
 	if len(volCaps) == 0 {
 		return fmt.Errorf("volume capabilities missing in request")
 	}
-	for _, c := range volCaps {
-		if c.GetBlock() != nil {
-			return fmt.Errorf("block volume capability not supported")
-		}
-	}
 	return nil
 }

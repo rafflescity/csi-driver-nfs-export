@@ -88,8 +88,6 @@ func NewDriver(options *DriverOptions, clientset *kubernetes.Clientset) *Driver 
 		workingMountDir:  options.WorkingMountDir,
 
 		clientSet: 		  clientset,
-
-		
 	}
 
 	n.AddControllerServiceCapabilities([]csi.ControllerServiceCapability_RPC_Type{
@@ -98,6 +96,7 @@ func NewDriver(options *DriverOptions, clientset *kubernetes.Clientset) *Driver 
 	})
 
 	n.AddNodeServiceCapabilities([]csi.NodeServiceCapability_RPC_Type{
+		csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
 		csi.NodeServiceCapability_RPC_GET_VOLUME_STATS,
 		csi.NodeServiceCapability_RPC_SINGLE_NODE_MULTI_WRITER,
 		csi.NodeServiceCapability_RPC_UNKNOWN,
@@ -110,6 +109,8 @@ func NewNodeServer(n *Driver, mounter mount.Interface) *NodeServer {
 	return &NodeServer{
 		Driver:  n,
 		mounter: mounter,
+		localPath: "",
+		exportPath: "",
 	}
 }
 

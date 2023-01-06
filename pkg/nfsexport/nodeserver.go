@@ -35,7 +35,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	types "k8s.io/apimachinery/pkg/types"
 )
 
 // NodeServer driver
@@ -68,13 +67,13 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	}
 
 	mountPermissions := ns.Driver.mountPermissions
-	var appPodName, appPodNamespace string
+	var appPodName, appPodNs string
 	for k, v := range req.GetVolumeContext() {
 		switch strings.ToLower(k) {
 		case podNameKey:
 			appPodName = v
 		case podNamespaceKey:
-			appPodNamespace = v
+			appPodNs = v
 		case mountOptionsField:
 			if v != "" {
 				mountOptions = append(mountOptions, v)
@@ -89,7 +88,7 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		}
 	}
 	klog.V(2).Infof("Applicaion Pod Name is: %s", appPodName)
-	klog.V(2).Infof("Application Pod Namespace is: %s", appPodNamespace)
+	klog.V(2).Infof("Application Pod Namespace is: %s", appPodNs)
 
 	// Mount nfs export path for local path
 	notMnt, err := ns.mounter.IsLikelyNotMountPoint(targetPath)
@@ -111,10 +110,29 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	source := ns.localPath
 	err = ns.mounter.Mount(source, targetPath, "", []string{"bind"})
 	if err == nil {
-		// labelKey := "controller.kubernetes.io/pod-deletion-cost"
-		// labelValue := "2147483647" 
-		// labelPatch := fmt.Sprintf(`[{"op":"add","path":"/metadata/annotations/%s","value":"%s" }]`, labelKey, labelValue)
-		// _, err = ns.Driver.clientSet.CoreV1().Pods(appPodNamespace).Patch(context.TODO(), appPodName, types.JSONPatchType, []byte(labelPatch), metav1.PatchOptions{})
+		appPod, err := ns.Driver.clientSet.CoreV1().Pods(appPodNs).Get(context.TODO(), appPodName, metav1.GetOptions{})
+		annotations := appPod.ObjectMeta.Annotations
+		if annotations == nil {
+			annotations = map[string]string {
+				"controller.kubernetes.io/pod-deletion-cost": "2147483647",
+			}
+		} else {
+			annotations["controller.kubernetes.io/pod-deletion-cost"] = "2147483647"
+		}
+		appPod.SetAnnotations(annotations)
+		// appPod.SetAnnotations(map[string]string {
+		// 	"controller.kubernetes.io/pod-deletion-cost": "2147483647",
+		// 	})
+		if err != nil {
+			klog.V(2).Infof("Failed to get the application pod: %s", err)
+		} else {
+			_, err = ns.Driver.clientSet.CoreV1().Pods(appPodNs).Update(context.TODO(), appPod, metav1.UpdateOptions{})
+			if err != nil {
+				klog.V(2).Infof("Failed to annotate the application pod: %s", err)
+			} else {
+				klog.V(2).Infof("Annotated pod with the highest deletion-cost: %s", appPodName )
+			}
+		}
 	} else {
 		source = ns.exportPath
 		err = ns.mounter.Mount(source, targetPath, "nfs", mountOptions)

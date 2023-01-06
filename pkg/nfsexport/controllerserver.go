@@ -52,20 +52,20 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	}
 
 	// Find Namespace
-	frontendPvcUidStr := strings.Replace(frontendPvName, "pvc-", "", 1)
-	klog.V(2).Infof("Frontend PVC UID is: %s", frontendPvcUidStr)
+	// frontendPvcUidStr := strings.Replace(frontendPvName, "pvc-", "", 1)
+	// klog.V(2).Infof("Frontend PVC UID is: %s", frontendPvcUidStr)
 
-	var frontendPvcName, frontendPvcNs string
-	pvc, err := getPvcByUidStr(cs.Driver.clientSet, frontendPvcUidStr)
-	if err == nil {
-		frontendPvcName = pvc.ObjectMeta.Name
-		frontendPvcNs = pvc.ObjectMeta.Namespace
-	} else {
-		return nil, status.Error(codes.Canceled, err.Error())
-	}
+	// var frontendPvcName, frontendPvcNs string
+	// pvc, err := getPvcByUidStr(cs.Driver.clientSet, frontendPvcUidStr)
+	// if err == nil {
+	// 	frontendPvcName = pvc.ObjectMeta.Name
+	// 	frontendPvcNs = pvc.ObjectMeta.Namespace
+	// } else {
+	// 	return nil, status.Error(codes.Canceled, err.Error())
+	// }
 
-	klog.V(2).Infof("Frontend PVC Name is: %s", frontendPvcName)
-	klog.V(2).Infof("Frontend PVC Namespace is: %s", frontendPvcNs)
+	// klog.V(2).Infof("Frontend PVC Name is: %s", frontendPvcName)
+	// klog.V(2).Infof("Frontend PVC Namespace is: %s", frontendPvcNs)
 
 	// mountPermissions := cs.Driver.mountPermissions
 	size := req.GetCapacityRange().GetRequiredBytes()
@@ -75,7 +75,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		parameters = make(map[string]string)
 	}
 
-    var backendSc, backendImg string
+    var backendSc, backendImg, frontendPvcName, frontendPvcNs string
 	// validate parameters (case-insensitive)
 	for k, v := range parameters {
 		switch strings.ToLower(k) {
@@ -83,6 +83,12 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 			backendSc = v
 		case paramBackendPodImage:
 			backendImg = v
+		case pvcNameKey:
+			frontendPvcName = v
+		case pvcNamespaceKey:
+			frontendPvcNs = v
+		case pvNameKey:
+			klog.V(2).Infof("pvNamekey: %s", v)
 		case mountPermissionsField:
 			// if v != "" {
 			// 	var err error
@@ -99,6 +105,8 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	backendPvcName := "backend-" + frontendPvName
 	backendNs := frontendPvcNs
 
+	klog.V(2).Infof("Frontend PVC Name is: %s", frontendPvcName)
+	klog.V(2).Infof("Frontend PVC Namespace is: %s", frontendPvcNs)
 	klog.V(2).Infof("Backend StorageClass is: %s", backendSc)
 	klog.V(2).Infof("Backend Pod Image is: %s", backendImg)
 	klog.V(2).Infof("Backend Namespace is: %s", backendNs)

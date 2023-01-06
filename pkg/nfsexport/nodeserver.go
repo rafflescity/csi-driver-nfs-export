@@ -32,11 +32,10 @@ import (
 	"k8s.io/kubernetes/pkg/volume"
 	mount "k8s.io/mount-utils"
 
-	// "time"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	// "github.com/hexops/valast"
+	types "k8s.io/apimachinery/pkg/types"
 )
 
 // NodeServer driver
@@ -74,7 +73,7 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		switch strings.ToLower(k) {
 		case podNameKey:
 			appPodName = v
-		case podNamespaceKey
+		case podNamespaceKey:
 			appPodNamespace = v
 		case mountOptionsField:
 			if v != "" {
@@ -89,6 +88,8 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 			}
 		}
 	}
+	klog.V(2).Infof("Applicaion Pod Name is: %s", appPodName)
+	klog.V(2).Infof("Application Pod Namespace is: %s", appPodNamespace)
 
 	// Mount nfs export path for local path
 	notMnt, err := ns.mounter.IsLikelyNotMountPoint(targetPath)
@@ -109,10 +110,17 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	// Mount local first, if fails, then mount remote
 	source := ns.localPath
 	err = ns.mounter.Mount(source, targetPath, "", []string{"bind"})
-	if err != nil {
+	if err == nil {
+		// labelKey := "controller.kubernetes.io/pod-deletion-cost"
+		// labelValue := "2147483647" 
+		// labelPatch := fmt.Sprintf(`[{"op":"add","path":"/metadata/annotations/%s","value":"%s" }]`, labelKey, labelValue)
+		// _, err = ns.Driver.clientSet.CoreV1().Pods(appPodNamespace).Patch(context.TODO(), appPodName, types.JSONPatchType, []byte(labelPatch), metav1.PatchOptions{})
+	} else {
 		source = ns.exportPath
 		err = ns.mounter.Mount(source, targetPath, "nfs", mountOptions)
 	}
+
+
 	klog.V(2).Infof("NodePublishVolume: volumeID(%v) source(%s) targetPath(%s) mountflags(%v)", volumeID, source, targetPath, mountOptions)
 
 	if err != nil {
@@ -393,10 +401,12 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
 	}
+
 	frontendPv, err := getPvById(ns.Driver.clientSet, volumeID)
 	if err != nil {
 		klog.V(2).Infof("Cannot find frontend PV by ID: %s", volumeID )
-	}
+		return &csi.NodeUnstageVolumeResponse{}, nil
+	} 
 
 	backendNs := frontendPv.Spec.PersistentVolumeSource.CSI.VolumeAttributes["backendNamespace"]
 	backendPvcName := frontendPv.Spec.PersistentVolumeSource.CSI.VolumeAttributes["backendVolumeClaim"]

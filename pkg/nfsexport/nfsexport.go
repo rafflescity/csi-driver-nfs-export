@@ -52,9 +52,9 @@ type Driver struct {
 
 const (
 
-	// paramServer	= "server"
-	// paramShare  = "share"
-	// paramSubDir = "subdir"
+	paramServer	= "server"
+	paramShare  = "share"
+	paramSubDir = "subdir"
 
 	DefaultDriverName         = "nfs-export.csi.k8s.io"
 	paramBackendVolumeClaim	  = "backendvolumeclaim"
@@ -65,13 +65,13 @@ const (
 	mountOptionsField         = "mountoptions"
 	mountPermissionsField 	  = "mountpermissions"
 
-	// pvcNameKey                = "csi.storage.k8s.io/pvc/name"
-	// pvcNamespaceKey           = "csi.storage.k8s.io/pvc/namespace"
-	// pvNameKey                 = "csi.storage.k8s.io/pv/name"
+	pvcNameKey                = "csi.storage.k8s.io/pvc/name"
+	pvcNamespaceKey           = "csi.storage.k8s.io/pvc/namespace"
+	pvNameKey                 = "csi.storage.k8s.io/pv/name"
 
-	// pvcNameMetadata           = "${pvc.metadata.name}"
-	// pvcNamespaceMetadata      = "${pvc.metadata.namespace}"
-	// pvNameMetadata            = "${pv.metadata.name}"
+	pvcNameMetadata           = "${pvc.metadata.name}"
+	pvcNamespaceMetadata      = "${pvc.metadata.namespace}"
+	pvNameMetadata            = "${pv.metadata.name}"
 
 	podNameKey				  = "csi.storage.k8s.io/pod.name"
 	podNamespaceKey			  = "csi.storage.k8s.io/pod.namespace"

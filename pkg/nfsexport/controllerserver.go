@@ -32,22 +32,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"github.com/google/uuid"
 )
 
 // ControllerServer controller server setting
 type ControllerServer struct {
 	Driver *Driver
 }
-
-type backendPvc struct {
-	name string
-	namespace string
-	size int64
-	StorageClass string
-	image string
-}
-
-const separator = "#"
 
 // CreateVolume create a volume
 func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
@@ -61,21 +52,20 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	}
 
 	// Find Namespace
-	frontendPvcUID := strings.Replace(frontendPvName, "pvc-", "", 1)
-	klog.V(2).Infof("Frontend PVC UID is: %s", frontendPvcUID)
-
-	pvcList, err := cs.Driver.clientSet.CoreV1().PersistentVolumeClaims("").List(context.TODO(), metav1.ListOptions{})
+	frontendPvcUidStr := strings.Replace(frontendPvName, "pvc-", "", 1)
+	klog.V(2).Infof("Frontend PVC UID is: %s", frontendPvcUidStr)
 
 	var frontendPvcName, frontendPvcNs string
-	for _, pvc := range pvcList.Items {
-		if string(pvc.ObjectMeta.UID) == frontendPvcUID {
-			frontendPvcName = pvc.ObjectMeta.Name
-			frontendPvcNs = pvc.ObjectMeta.Namespace
-			klog.V(2).Infof("Frontend PVC Name is: %s", frontendPvcName)
-			klog.V(2).Infof("Frontend PVC Namespace is: %s", frontendPvcNs)
-			break
-		}
+	pvc, err := getPvcByUidStr(cs.Driver.clientSet, frontendPvcUidStr)
+	if err == nil {
+		frontendPvcName = pvc.ObjectMeta.Name
+		frontendPvcNs = pvc.ObjectMeta.Namespace
+	} else {
+		return nil, status.Error(codes.Canceled, err.Error())
 	}
+
+	klog.V(2).Infof("Frontend PVC Name is: %s", frontendPvcName)
+	klog.V(2).Infof("Frontend PVC Namespace is: %s", frontendPvcNs)
 
 	// mountPermissions := cs.Driver.mountPermissions
 	size := req.GetCapacityRange().GetRequiredBytes()
@@ -86,7 +76,6 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	}
 
     var backendSc, backendImg string
-
 	// validate parameters (case-insensitive)
 	for k, v := range parameters {
 		switch strings.ToLower(k) {
@@ -94,10 +83,6 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 			backendSc = v
 		case paramBackendPodImage:
 			backendImg = v
-		case pvcNamespaceKey:
-		case pvcNameKey:
-		case pvNameKey:
-			// no op
 		case mountPermissionsField:
 			// if v != "" {
 			// 	var err error
@@ -121,9 +106,13 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 
 	resourceStorage := resource.NewQuantity(size, resource.BinarySI)
 
+	volumeID := uuid.New().String()
 	backendPvcDef := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: backendPvcName,
+		Labels: map[string]string{
+				"nfs-export.csi.k8s.io/id": volumeID,
+			},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			StorageClassName: &backendSc,
@@ -142,21 +131,21 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	if err != nil { // check if backend PVC already exists. Needs a more strict verification here
 		backendPvc, err = cs.Driver.clientSet.CoreV1().PersistentVolumeClaims(backendNs).Create(context.TODO(),backendPvcDef, metav1.CreateOptions{})
 		if err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
+			return nil, status.Error(codes.Canceled, err.Error())
 		}
 	}
 	
-    backendPvcUid := string(backendPvc.ObjectMeta.UID)
-	klog.V(2).Infof("Backend PVC uid is: %s", backendPvcUid )
+    backendPvcUidStr := string(backendPvc.ObjectMeta.UID)
+	klog.V(2).Infof("Backend PVC uid is: %s", backendPvcUidStr )
 
+	// backend PVC, POD and SVC all use the same name
 	return &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
-			VolumeId:      backendPvcUid, // CSI Volume Handle, needs improvement here
+			VolumeId:      volumeID, // CSI Volume Handle, needs improvement here
 			CapacityBytes: 0, // by setting it to zero, Provisioner will use PVC requested size as PV size
 			VolumeContext: map[string]string{
 				"backendVolumeClaim"  	: backendPvcName,
 				"backendNamespace" 	  	: backendNs,
-				"backendStorageClass" 	: backendSc,
 				"backendPodImage"     	: backendImg,
 			},
 		},
@@ -169,6 +158,21 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 	if volumeID == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume id is empty")
 	}
+
+	frontendPv, err := getPvById(cs.Driver.clientSet, volumeID)
+	if err != nil {
+		klog.V(2).Infof("Cannot find frontend PV by ID: %s", volumeID )
+	}
+
+	backendPvcName := frontendPv.Spec.PersistentVolumeSource.CSI.VolumeAttributes["backendVolumeClaim"]
+	backendNs := frontendPv.Spec.PersistentVolumeSource.CSI.VolumeAttributes["backendNamespace"]
+	klog.V(2).Infof("Backend PVC Name is: %s", backendPvcName)
+	klog.V(2).Infof("Backend PVC Namespace is: %s", backendNs )
+	err = cs.Driver.clientSet.CoreV1().PersistentVolumeClaims(backendNs).Delete(context.TODO(), backendPvcName, metav1.DeleteOptions{})
+	if err != nil {
+		klog.V(2).Infof("Cannot delete backend PVC: ", err )
+	}
+
 	return &csi.DeleteVolumeResponse{}, nil
 }
 

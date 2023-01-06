@@ -10,7 +10,7 @@ parameters:
   
   backendStorageClass: csi-hostpath-sc
   backendPodImage: daocloud.io/piraeus/volume-nfs-exporter:ganesha
-
+podInfoOnMount: true
 reclaimPolicy: Delete
 volumeBindingMode: Immediate
 mountOptions:

@@ -17,8 +17,6 @@ limitations under the License.
 package nfsexport
 
 import (
-	"strings"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"k8s.io/klog/v2"
 	mount "k8s.io/mount-utils"
@@ -54,9 +52,9 @@ type Driver struct {
 
 const (
 
-	paramServer	= "server"
-	paramShare  = "share"
-	paramSubDir = "subdir"
+	// paramServer	= "server"
+	// paramShare  = "share"
+	// paramSubDir = "subdir"
 
 	DefaultDriverName         = "nfs-export.csi.k8s.io"
 	paramBackendVolumeClaim	  = "backendvolumeclaim"
@@ -67,13 +65,16 @@ const (
 	mountOptionsField         = "mountoptions"
 	mountPermissionsField 	  = "mountpermissions"
 
-	pvcNameKey                = "csi.storage.k8s.io/pvc/name"
-	pvcNamespaceKey           = "csi.storage.k8s.io/pvc/namespace"
-	pvNameKey                 = "csi.storage.k8s.io/pv/name"
+	// pvcNameKey                = "csi.storage.k8s.io/pvc/name"
+	// pvcNamespaceKey           = "csi.storage.k8s.io/pvc/namespace"
+	// pvNameKey                 = "csi.storage.k8s.io/pv/name"
 
-	pvcNameMetadata           = "${pvc.metadata.name}"
-	pvcNamespaceMetadata      = "${pvc.metadata.namespace}"
-	pvNameMetadata            = "${pv.metadata.name}"
+	// pvcNameMetadata           = "${pvc.metadata.name}"
+	// pvcNamespaceMetadata      = "${pvc.metadata.namespace}"
+	// pvNameMetadata            = "${pv.metadata.name}"
+
+	podNameKey				  = "csi.storage.k8s.io/pod.name"
+	podNamespaceKey			  = "csi.storage.k8s.io/pod.namespace"
 )
 
 func NewDriver(options *DriverOptions, clientset *kubernetes.Clientset) *Driver {
@@ -149,17 +150,3 @@ func (n *Driver) AddNodeServiceCapabilities(nl []csi.NodeServiceCapability_RPC_T
 	n.nscap = nsc
 }
 
-func IsCorruptedDir(dir string) bool {
-	_, pathErr := mount.PathExists(dir)
-	return pathErr != nil && mount.IsCorruptedMnt(pathErr)
-}
-
-// replaceWithMap replace key with value for str
-func replaceWithMap(str string, m map[string]string) string {
-	for k, v := range m {
-		if k != "" {
-			str = strings.ReplaceAll(str, k, v)
-		}
-	}
-	return str
-}

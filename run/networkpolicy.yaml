@@ -1,0 +1,20 @@
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: csi-nfs-export
+  namespace: default
+spec:
+  podSelector:
+    matchExpressions:
+      - key: nfs-export.csi.k8s.io/id
+        operator: Exists
+  ingress:
+  - from:
+    - podSelector:      
+        matchLabels:
+          nfs-export.csi.k8s.io/app: node
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: csi-nfs-export
+    # - ipBlock:
+    #     cidr: 10.211.55.0/24

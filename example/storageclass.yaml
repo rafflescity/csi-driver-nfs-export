@@ -7,10 +7,9 @@ parameters:
   # csi.storage.k8s.io/provisioner-secret is only needed for providing mountOptions in DeleteVolume
   # csi.storage.k8s.io/provisioner-secret-name: "mount-options"
   # csi.storage.k8s.io/provisioner-secret-namespace: "default"
-  
   backendStorageClass: csi-hostpath-sc
-  backendPodImage: daocloud.io/piraeus/volume-nfs-exporter:ganesha
-podInfoOnMount: true
+  backendPodImage: daocloud.io/piraeus/nfs-ganesha:latest
+  hostIPs: 10.211.55.0/24
 reclaimPolicy: Delete
 volumeBindingMode: Immediate
 mountOptions:

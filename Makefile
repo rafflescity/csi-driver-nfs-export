@@ -18,8 +18,7 @@ build:
 clean:
 	kubectl delete -f run/controller.yaml || true
 	kubectl delete -f run/node.yaml || true
-	kubectl -n csi-nfs-export wait deployment csi-nfs-export-controller --for=delete --timeout=90s
-	kubectl -n csi-nfs-export wait ds csi-nfs-export-node --for=delete --timeout=90s
+	kubectl -n csi-nfs-export wait po -l nfs-export.csi.k8s.io/app --for=delete --timeout=90s
 	rm -vfr ./bin/nfsexportplugin
 
 deploy:
@@ -50,6 +49,7 @@ logf:
 
 logc:
 	kubectl logs -f deploy/csi-nfs-export-controller nfs-export -n csi-nfs-export
+
 
 run-local-nfs-server:
 	docker rm -f nfs-ganesha

@@ -34,7 +34,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	//"github.com/hexops/valast"
 )
 
 // NodeServer driver
@@ -113,16 +115,10 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		appPod, err := ns.Driver.clientSet.CoreV1().Pods(appPodNs).Get(context.TODO(), appPodName, metav1.GetOptions{})
 		annotations := appPod.ObjectMeta.Annotations
 		if annotations == nil {
-			annotations = map[string]string {
-				"controller.kubernetes.io/pod-deletion-cost": "2147483647",
-			}
-		} else {
-			annotations["controller.kubernetes.io/pod-deletion-cost"] = "2147483647"
+			annotations = map[string]string{}
 		}
+		annotations["controller.kubernetes.io/pod-deletion-cost"] = "2147483647"
 		appPod.SetAnnotations(annotations)
-		// appPod.SetAnnotations(map[string]string {
-		// 	"controller.kubernetes.io/pod-deletion-cost": "2147483647",
-		// 	})
 		if err != nil {
 			klog.V(2).Infof("Failed to get the application pod: %s", err)
 		} else {
@@ -192,7 +188,7 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
 	}
 	// Get parameters
-	var backendPvcName, backendNs, backendImg string
+	var backendPvcName, backendNs, backendImg, hostIPs string
 	bs, _ := json.Marshal(req.GetVolumeContext())
     klog.V(2).Infof("VolumeContext: %s", string(bs))
 	for k, v := range req.GetVolumeContext() {
@@ -203,6 +199,8 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 			backendNs = v
 		case paramBackendPodImage:
 			backendImg = v
+		case paramHostIPs:
+			hostIPs = v
 		}
 	}
 	if backendPvcName == "" {
@@ -211,8 +209,8 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	if backendNs == "" {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("%v is a required parameter", paramBackendNamespace))
 	}
-	if backendImg == ""{
-		backendImg = "daocloud.io/piraeus/volume-nfs-exporter:ganesha"
+	if backendImg == "" {
+		backendImg = "daocloud.io/piraeus/nfs-ganesha:latest"
 	}
 
 	// Check if backend PVC exists
@@ -223,12 +221,15 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	backendPvcUid := backendPvc.ObjectMeta.UID
 
 	// Create backend Pod to connect backend SVC with backend PVC
-	backendPodName := backendPvcName
-	klog.Infof("Creating backend POD: \"%s\"", backendPodName)
-
-	backendPodDef := &corev1.Pod{
+	backendStsName := backendPvcName
+	klog.Infof("Creating backend StatefulSet is: \"%s\"", backendStsName)
+	backendSvcName := backendPvcName
+	
+	hostPathType := corev1.HostPathDirectoryOrCreate
+	mountPropagationMode := corev1.MountPropagationBidirectional
+	backendStsDef := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: backendPodName,
+			Name: backendStsName,
 			Labels: map[string]string{
 				"nfs-export.csi.k8s.io/id": volumeID,
 			},
@@ -241,79 +242,107 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 				},
 			},
 		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:  "export",
-					Image: backendImg,
-					ImagePullPolicy: corev1.PullAlways,
-					// SecurityContext: &corev1.SecurityContext{
-					// 	Privileged: valast.Addr(true).(*bool),
-					// },
-					SecurityContext: &corev1.SecurityContext{
-						Capabilities: &corev1.Capabilities{
-							Add: []corev1.Capability{
-								"SYS_ADMIN",
-								"SETPCAP",
-								"DAC_READ_SEARCH",
-							},
-						},
-					},
-					// Args: []string{
-					// 	"/export",
-					// },
-					Ports: []corev1.ContainerPort{
-						{
-							Name:          "nfs",
-							Protocol:      corev1.ProtocolTCP,
-							ContainerPort: 2049,
-						},
-						{
-							Name:          "rpc-tcp",
-							Protocol:      corev1.ProtocolTCP,
-							ContainerPort: 111,
-						},
-						{
-							Name:          "rpc-udp",
-							Protocol:      corev1.ProtocolUDP,
-							ContainerPort: 111,
-						},
-					},
-					ReadinessProbe: &corev1.Probe {
-						ProbeHandler: corev1.ProbeHandler{
-							TCPSocket: &corev1.TCPSocketAction{
-									Port: intstr.FromString("nfs"),
-							},
-						},
-						InitialDelaySeconds: 1,
-						PeriodSeconds: 1,
-						SuccessThreshold: 3,
-					},
-					VolumeMounts: []corev1.VolumeMount{
-						// {
-						// 	Name:			  "share",
-						// 	MountPath:		  "/share",
-						// 	MountPropagation: valast.Addr(corev1.MountPropagationMode("Bidirectional")).(*corev1.MountPropagationMode),
-						// },
-						{
-							Name:	   "export",
-							MountPath: "/export",
-						},
-					},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: Ptr(int32(1)),
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+				Type: appsv1.OnDeleteStatefulSetStrategyType,	
+			},
+			ServiceName: backendSvcName,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"nfs-export.csi.k8s.io/id": volumeID,
 				},
 			},
-			Volumes: []corev1.Volume{
-				// {
-				// 	Name: "share", 
-				// 	VolumeSource: corev1.VolumeSource{
-				// 		EmptyDir: &corev1.EmptyDirVolumeSource{},
-				// 	},
-				// },
-				{
-					Name: "export",
-					VolumeSource: corev1.VolumeSource{
-						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-							ClaimName: backendPvcName,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"nfs-export.csi.k8s.io/id": volumeID,
+					},
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyAlways,
+					TerminationGracePeriodSeconds: Ptr(int64(30)),
+					Containers: []corev1.Container{
+						{
+							Name:  "export",
+							Image: backendImg,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							SecurityContext: &corev1.SecurityContext{
+								Privileged: Ptr(true), //valast.Addr(true).(*bool),
+							},
+							// SecurityContext: &corev1.SecurityContext{
+							// 	Capabilities: &corev1.Capabilities{
+							// 		Add: []corev1.Capability{
+							// 			"SYS_ADMIN",
+							// 			"SETPCAP",
+							// 			"DAC_READ_SEARCH",
+							// 		},
+							// 	},
+							// },
+							Args: []string{
+								hostIPs,
+							},
+							Ports: []corev1.ContainerPort{
+								{
+									Name:          "nfs",
+									Protocol:      corev1.ProtocolTCP,
+									ContainerPort: 2049,
+								},
+								{
+									Name:          "rpc-tcp",
+									Protocol:      corev1.ProtocolTCP,
+									ContainerPort: 111,
+								},
+								{
+									Name:          "rpc-udp",
+									Protocol:      corev1.ProtocolUDP,
+									ContainerPort: 111,
+								},
+							},
+							ReadinessProbe: &corev1.Probe {
+								ProbeHandler: corev1.ProbeHandler{
+									TCPSocket: &corev1.TCPSocketAction{
+											Port: intstr.FromString("nfs"),
+									},
+								},
+								InitialDelaySeconds: 1,
+								PeriodSeconds: 1,
+								SuccessThreshold: 3,
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:			  "volumes",
+									MountPath:		  "/volumes",
+									MountPropagation: &mountPropagationMode,
+								},
+								{
+									Name:	   "data",
+									MountPath: "/volumes/" + volumeID,
+								},
+								{
+									Name:	   "data",
+									MountPath: "/export",
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "volumes", 
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/var/lib/csi-nfs-export/volumes/",
+									Type: &hostPathType,
+								},
+							},
+						},
+						{
+							Name: "data",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: backendPvcName,
+								},
+							},
 						},
 					},
 				},
@@ -321,16 +350,20 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		},
 	}
 
-	backendPod, err := ns.Driver.clientSet.CoreV1().Pods(backendNs).Get(context.TODO(), backendPodName, metav1.GetOptions{})
+	_, err = ns.Driver.clientSet.AppsV1().StatefulSets(backendNs).Get(context.TODO(), backendStsName, metav1.GetOptions{})
 	if err != nil {
-		backendPod, err = ns.Driver.clientSet.CoreV1().Pods(backendNs).Create(context.TODO(), backendPodDef, metav1.CreateOptions{})
+		_, err = ns.Driver.clientSet.AppsV1().StatefulSets(backendNs).Create(context.TODO(), backendStsDef, metav1.CreateOptions{})
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 	}
-	backendPodUid:= backendPod.ObjectMeta.UID
 
 	// Wait for Pod to be ready
+	backendPodName := backendStsName + "-0"
+	// backendPod, _ := ns.Driver.clientSet.CoreV1().Pods(backendNs).Get(context.TODO(), backendPodName, metav1.GetOptions{})
+	// backendPodUid:= backendPod.ObjectMeta.UID
+	// klog.V(2).Infof("Backend Pod UID is: \"%s\"", backendPodUid )
+
 	klog.V(2).Infof("Waiting for Pod to be ready: %s", backendPodName)
 	err = waitForPodRunning(ns.Driver.clientSet, backendNs, backendPodName, 5 * time.Minute)
 	if err != nil {
@@ -339,8 +372,7 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	}
 
 	// Create backend Service
-	backendSvcName := backendPvcName
-	klog.V(2).Infof("Backend Service \"%s\"", backendSvcName )
+	klog.V(2).Infof("Creating backend Service: \"%s\"", backendSvcName )
 	backendSvcDef := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: backendSvcName,
@@ -408,8 +440,10 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	}
 	
 	ns.exportPath = backendClusterIp + ":" + "/"
-	ns.localPath = fmt.Sprintf("/pods/%s/volumes/kubernetes.io~csi/pvc-%s/mount", backendPodUid, backendPvcUid )
-	
+	// ns.localPath = fmt.Sprintf("/var/snap/microk8s/common/var/lib/kubelet/pods/%s/volumes/kubernetes.io~csi/pvc-%s/mount", backendPodUid, backendPvcUid )
+	// ns.localPath = fmt.Sprintf("/pods/%s/volumes/kubernetes.io~csi/pvc-%s/mount", backendPodUid, backendPvcUid )
+	ns.localPath = "/volumes/" + volumeID
+
 	return &csi.NodeStageVolumeResponse{}, nil
 }
 
@@ -426,23 +460,51 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 		return &csi.NodeUnstageVolumeResponse{}, nil
 	} 
 
+	// check if there is still any application POD using the frontend PVC 
+	frontendPvcName :=  frontendPv.Spec.ClaimRef.Name
+	frontendPvcNs :=  frontendPv.Spec.ClaimRef.Namespace
+	klog.V(2).Infof("Frontend PVC Namespace is: %s", frontendPvcNs )
+	klog.V(2).Infof("Frontend PVC Name is: %s", frontendPvcName)
+	podList, _ := ns.Driver.clientSet.CoreV1().Pods(frontendPvcNs).List(context.TODO(), metav1.ListOptions{})
+	for _, pod := range podList.Items {
+			for _, volume := range pod.Spec.Volumes {
+					if volume.PersistentVolumeClaim !=nil && volume.PersistentVolumeClaim.ClaimName == frontendPvcName {
+						klog.V(2).Infof("Pod %s is still using the PV", pod.ObjectMeta.Name )
+						return &csi.NodeUnstageVolumeResponse{}, nil
+					}
+			}
+	}
+
+	// Delete backend pod and svc
 	backendNs := frontendPv.Spec.PersistentVolumeSource.CSI.VolumeAttributes["backendNamespace"]
 	backendPvcName := frontendPv.Spec.PersistentVolumeSource.CSI.VolumeAttributes["backendVolumeClaim"]
-	backendPodName := backendPvcName
+	backendStsName := backendPvcName
 	backendSvcName := backendPvcName
 	klog.V(2).Infof("Backend PVC Namespace is: %s", backendNs )
-	klog.V(2).Infof("Backend POD Name is: %s", backendPvcName)
-	klog.V(2).Infof("Backend SVC Name is: %s", backendSvcName)
-	
-	err = ns.Driver.clientSet.CoreV1().Pods(backendNs).Delete(context.TODO(), backendPodName, metav1.DeleteOptions{})
-	if err != nil {
-		klog.V(2).Infof("Cannot delete backend POD %s: %s", backendPodName, err)
+	klog.V(2).Infof("Backend StatefulSet Name is: %s", backendStsName)
+	klog.V(2).Infof("Backend Service Name is: %s", backendSvcName)
+
+	err = ns.Driver.clientSet.AppsV1().StatefulSets(backendNs).Delete(context.TODO(), backendStsName, metav1.DeleteOptions{})
+	if err == nil {
+		klog.V(2).Infof("Deleted backend STS %s", backendStsName)
+	} else {
+		klog.V(2).Infof("Failed to delete backend STS %s: %s", backendStsName, err)
 	}
 
 	err = ns.Driver.clientSet.CoreV1().Services(backendNs).Delete(context.TODO(), backendSvcName, metav1.DeleteOptions{})
-	if err != nil {
-		klog.V(2).Infof("Cannot delete backend SVC %s: %s", backendSvcName, err)
+	if err == nil {
+		klog.V(2).Infof("Deleted backend SVC %s", backendSvcName)
+	} else {
+		klog.V(2).Infof("Failed to delete backend SVC %s: %s", backendSvcName, err)
 	}
+
+	err = os.Remove(ns.localPath)
+	if err == nil {
+		klog.V(2).Infof("Removed the local path %s", "/var/lib/csi-nfs-export/" + ns.localPath)
+	} else { 
+		klog.V(2).Infof("Failed to removed the local path %s: %s", "/var/lib/csi-nfs-export/" + ns.localPath, err)
+	}
+
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 

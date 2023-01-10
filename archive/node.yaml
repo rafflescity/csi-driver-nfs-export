@@ -12,12 +12,10 @@ spec:
   selector:
     matchLabels:
       app: csi-nfs-export-node
-      nfs-export.csi.k8s.io/app: node
   template:
     metadata:
       labels:
         app: csi-nfs-export-node
-        nfs-export.csi.k8s.io/app: node
     spec:
       hostNetwork: true  # original nfs connection would be broken without hostNetwork setting
       dnsPolicy: Default  # available values: Default, ClusterFirstWithHostNet, ClusterFirst
@@ -66,10 +64,8 @@ spec:
               mountPath: /registration
             - mountPath: /var/snap/microk8s/common/var/lib/kubelet/pods
               name: pods-mount-dir
-            # - mountPath: /pods 
-            #   name: pods-mount-dir
-            - name: local-volumes
-              mountPath: /volumes
+            - mountPath: /pods 
+              name: pods-mount-dir
           resources: {}
         - name: nfs-export
           securityContext:
@@ -111,11 +107,8 @@ spec:
             - name: pods-mount-dir
               mountPath: /var/snap/microk8s/common/var/lib/kubelet/pods
               mountPropagation: "Bidirectional"
-            # - name: pods-mount-dir
-            #   mountPath: /pods
-            - name: local-volumes
-              mountPath: /volumes
-              mountPropagation: "Bidirectional"
+            - name: pods-mount-dir
+              mountPath: /pods
             - name: github
               mountPath: /go/cne
           resources: {}
@@ -132,10 +125,6 @@ spec:
             path: /var/snap/microk8s/common/var/lib/kubelet/plugins_registry
             type: Directory
           name: registration-dir
-        - name: local-volumes
-          hostPath:
-            path: /var/lib/csi-nfs-export/volumes/
-            type: DirectoryOrCreate
         - name: github
           hostPath:
             path: /media/psf/Github/rafflescity/csi-driver-nfs-export/

@@ -126,3 +126,9 @@ func getPvById(c kubernetes.Interface, id string) (*corev1.PersistentVolume, err
 		return &pv, nil
 	}
 }
+
+func Ptr[T any](v T) *T {
+    return &v
+}
+
+

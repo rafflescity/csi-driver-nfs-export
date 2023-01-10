@@ -2,3 +2,5 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: csi-nfs-export
+  labels:
+    nfs-export.csi.k8s.io/ns: ""

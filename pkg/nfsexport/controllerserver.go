@@ -22,6 +22,7 @@ import (
 	//"path/filepath"
 	//"regexp"
 	"strings"
+	//"strconv"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"golang.org/x/net/context"
@@ -50,39 +51,23 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	if err := isValidVolumeCapabilities(req.GetVolumeCapabilities()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-
-	// Find Namespace
-	// frontendPvcUidStr := strings.Replace(frontendPvName, "pvc-", "", 1)
-	// klog.V(2).Infof("Frontend PVC UID is: %s", frontendPvcUidStr)
-
-	// var frontendPvcName, frontendPvcNs string
-	// pvc, err := getPvcByUidStr(cs.Driver.clientSet, frontendPvcUidStr)
-	// if err == nil {
-	// 	frontendPvcName = pvc.ObjectMeta.Name
-	// 	frontendPvcNs = pvc.ObjectMeta.Namespace
-	// } else {
-	// 	return nil, status.Error(codes.Canceled, err.Error())
-	// }
-
-	// klog.V(2).Infof("Frontend PVC Name is: %s", frontendPvcName)
-	// klog.V(2).Infof("Frontend PVC Namespace is: %s", frontendPvcNs)
-
-	// mountPermissions := cs.Driver.mountPermissions
-	size := req.GetCapacityRange().GetRequiredBytes()
 	
 	parameters := req.GetParameters()
 	if parameters == nil {
 		parameters = make(map[string]string)
 	}
 
-    var backendSc, backendImg, frontendPvcName, frontendPvcNs string
+    var backendSc, backendImg, hostIPs, frontendPvcName, frontendPvcNs string
 	// validate parameters (case-insensitive)
+	// mountPermissions := cs.Driver.mountPermissions
 	for k, v := range parameters {
 		switch strings.ToLower(k) {
 		case paramBackendStorageClass:
 			backendSc = v
 		case paramBackendPodImage:
 			backendImg = v
+		case paramHostIPs:
+			hostIPs = v
 		case pvcNameKey:
 			frontendPvcName = v
 		case pvcNamespaceKey:
@@ -102,7 +87,8 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	}
 
 	// Create BackendPvc
-	backendPvcName := "backend-" + frontendPvName
+	volumeID := "pve-" + uuid.New().String()
+	backendPvcName := volumeID
 	backendNs := frontendPvcNs
 
 	klog.V(2).Infof("Frontend PVC Name is: %s", frontendPvcName)
@@ -111,10 +97,11 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	klog.V(2).Infof("Backend Pod Image is: %s", backendImg)
 	klog.V(2).Infof("Backend Namespace is: %s", backendNs)
 	klog.V(2).Infof("Backend PVC Name is: %s", backendPvcName )
+	klog.V(2).Infof("Host IPs are: %s", hostIPs )
 
+	size := req.GetCapacityRange().GetRequiredBytes()
 	resourceStorage := resource.NewQuantity(size, resource.BinarySI)
 
-	volumeID := uuid.New().String()
 	backendPvcDef := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: backendPvcName,
@@ -144,7 +131,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	}
 	
     backendPvcUidStr := string(backendPvc.ObjectMeta.UID)
-	klog.V(2).Infof("Backend PVC uid is: %s", backendPvcUidStr )
+	klog.V(2).Infof("Backend PVC uid is: %s", backendPvcUidStr)
 
 	// backend PVC, POD and SVC all use the same name
 	return &csi.CreateVolumeResponse{
@@ -155,6 +142,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 				"backendVolumeClaim"  	: backendPvcName,
 				"backendNamespace" 	  	: backendNs,
 				"backendPodImage"     	: backendImg,
+				"hostIPs"               : hostIPs,
 			},
 		},
 	}, nil
@@ -185,10 +173,12 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 }
 
 func (cs *ControllerServer) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
+	// klog.V(2).Infof("Controller Publish is here!" )
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (cs *ControllerServer) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
+	/// klog.V(2).Infof("Controller Unpublish is here!" )
 	return nil, status.Error(codes.Unimplemented, "")
 }
 

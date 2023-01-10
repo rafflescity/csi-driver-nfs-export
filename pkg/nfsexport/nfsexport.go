@@ -61,6 +61,7 @@ const (
 	paramBackendStorageClass  = "backendstorageclass"
 	paramBackendPodImage 	  = "backendpodimage"
 	paramBackendNamespace     = "backendnamespace"
+	paramHostIPs			  = "hostips"
 
 	mountOptionsField         = "mountoptions"
 	mountPermissionsField 	  = "mountpermissions"
@@ -94,6 +95,7 @@ func NewDriver(options *DriverOptions, clientset *kubernetes.Clientset) *Driver 
 	n.AddControllerServiceCapabilities([]csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_SINGLE_NODE_MULTI_WRITER,
+		// csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME, // require volumeattachments
 	})
 
 	n.AddNodeServiceCapabilities([]csi.NodeServiceCapability_RPC_Type{
@@ -149,4 +151,3 @@ func (n *Driver) AddNodeServiceCapabilities(nl []csi.NodeServiceCapability_RPC_T
 	}
 	n.nscap = nsc
 }
-
